@@ -1,0 +1,146 @@
+﻿工作记录日报 - 2026-05-08
+================================
+有效使用时长: 30分钟
+空闲时长: 0分钟
+键盘输入次数: 386 次，平均 12.5 次/分钟
+鼠标点击次数: 174 次，平均 5.6 次/分钟
+
+按应用统计
+--------------------------------
+Code.exe: 10分钟
+ChatGPT.exe: 8分钟
+msedge.exe: 3分钟
+explorer.exe: 3分钟
+哔哩哔哩.exe: 2分钟
+Weixin.exe: 1分钟
+Typora.exe: 0分钟
+WindowsTerminal.exe: 0分钟
+SnippingTool.exe: 0分钟
+wscript.exe: 0分钟
+pythonw.exe: 0分钟
+ShellExperienceHost.exe: 0分钟
+python.exe: 0分钟
+
+主要窗口/任务
+--------------------------------
+8分钟  Code.exe  work_tracker.py - 自动检测 - Visual Studio Code
+6分钟  ChatGPT.exe  Claude.md 及类似文件
+2分钟  哔哩哔哩.exe  哔哩哔哩 (゜-゜)つロ 干杯~-bilibili
+2分钟  ChatGPT.exe  整理GitHub仓库
+1分钟  explorer.exe  自动检测 - 文件资源管理器
+1分钟  Code.exe  简历czy.md - 简历 - Visual Studio Code
+1分钟  Weixin.exe  微信
+0分钟  msedge.exe  Turtleneck911 - 个人 - Microsoft​ Edge
+0分钟  Code.exe  陈卓远_升学辅导海报.png - 简历 - Visual Studio Code
+0分钟  msedge.exe  陈卓远 的评分: 数字电子技术 和另外 1 个页面 - 个人 - Microsoft​ Edge
+0分钟  Typora.exe  README.md - Typora
+0分钟  Code.exe  简历 - Visual Studio Code
+0分钟  explorer.exe  无标题
+0分钟  explorer.exe  系统托盘溢出窗口。
+0分钟  explorer.exe  计算机工程实践czy - 文件资源管理器
+0分钟  SnippingTool.exe  截图工具覆盖
+0分钟  msedge.exe  turtleneck1109-design - 个人 - Microsoft​ Edge
+0分钟  msedge.exe  turtleneck1109-design/SoccerRobot - 个人 - Microsoft​ Edge
+0分钟  Code.exe  自动检测 - Visual Studio Code
+0分钟  WindowsTerminal.exe  C:\WINDOWS\system32\cmd.exe
+
+时间线
+--------------------------------
+22:00-22:00  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:00-22:00  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:00-22:01  Code.exe - 自动检测 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:01-22:01  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:01-22:01  Typora.exe - README.md - Typora (键盘 0 次，鼠标 0 次)
+22:01-22:01  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:01-22:01  Code.exe - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:01-22:01  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:01-22:01  WindowsTerminal.exe - C:\WINDOWS\system32\cmd.exe (键盘 0 次，鼠标 0 次)
+22:02-22:02  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:02-22:03  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:03-22:04  ChatGPT.exe - Claude.md 及类似文件 (键盘 0 次，鼠标 0 次)
+22:04-22:05  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:05-22:05  msedge.exe - ~ 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 0 次)
+22:05-22:05  msedge.exe - Codex 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 0 次)
+22:05-22:05  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:05-22:05  Code.exe - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:05-22:06  Code.exe - 陈卓远_升学辅导海报.png - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:06-22:06  Code.exe - 简历czy.md - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:06-22:06  Code.exe - 陈卓远_升学辅导海报.png - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:06-22:06  Code.exe - 合照.png - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:06-22:07  Code.exe - 简历czy.md - 简历 - Visual Studio Code (键盘 0 次，鼠标 0 次)
+22:15-22:16  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 5 次)
+22:16-22:16  Typora.exe - README.md - Typora (键盘 3 次，鼠标 3 次)
+22:16-22:18  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 67 次，鼠标 4 次)
+22:18-22:18  explorer.exe - 无标题 (键盘 0 次，鼠标 4 次)
+22:18-22:18  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 5 次)
+22:18-22:18  ShellExperienceHost.exe - Typora 的跳转列表 (键盘 0 次，鼠标 3 次)
+22:18-22:18  Typora.exe - README.md - Typora (键盘 0 次，鼠标 3 次)
+22:18-22:19  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+22:19-22:19  wscript.exe - Local Work Tracker (键盘 0 次，鼠标 3 次)
+22:19-22:19  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 1 次)
+22:19-22:19  explorer.exe - 无标题 (键盘 0 次，鼠标 2 次)
+22:19-22:23  ChatGPT.exe - Claude.md 及类似文件 (键盘 0 次，鼠标 1 次)
+22:23-22:23  msedge.exe - ChatGPT 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 4 次)
+22:23-22:23  explorer.exe - 系统托盘溢出窗口。 (键盘 0 次，鼠标 2 次)
+22:23-22:25  哔哩哔哩.exe - 哔哩哔哩 (゜-゜)つロ 干杯~-bilibili (键盘 0 次，鼠标 0 次)
+22:25-22:25  explorer.exe - 新建标签页 (键盘 0 次，鼠标 0 次)
+22:25-22:25  pythonw.exe - 学习时间检测 (键盘 0 次，鼠标 2 次)
+22:25-22:26  哔哩哔哩.exe - 哔哩哔哩 (゜-゜)つロ 干杯~-bilibili (键盘 0 次，鼠标 1 次)
+22:26-22:26  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 41 次，鼠标 3 次)
+22:26-22:28  ChatGPT.exe - Claude.md 及类似文件 (键盘 3 次，鼠标 2 次)
+22:28-22:28  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 14 次，鼠标 3 次)
+22:28-22:28  SnippingTool.exe - 截图工具覆盖 (键盘 19 次，鼠标 0 次)
+22:28-22:30  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 48 次，鼠标 9 次)
+22:30-22:30  explorer.exe - 自动检测 - 文件资源管理器 (键盘 2 次，鼠标 2 次)
+22:30-22:31  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 79 次，鼠标 3 次)
+22:31-22:31  msedge.exe - ChatGPT 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 4 次)
+22:31-22:31  msedge.exe - Turtleneck911 - 个人 - Microsoft​ Edge (键盘 4 次，鼠标 1 次)
+22:31-22:32  SnippingTool.exe - 截图工具覆盖 (键盘 0 次，鼠标 1 次)
+22:32-22:32  msedge.exe - Turtleneck911 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 5 次)
+22:32-22:32  explorer.exe - 系统托盘溢出窗口。 (键盘 0 次，鼠标 1 次)
+22:32-22:32  msedge.exe - Turtleneck911 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:32-22:32  msedge.exe - turtleneck1109-design - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 3 次)
+22:32-22:32  ChatGPT.exe - Claude.md 及类似文件 (键盘 0 次，鼠标 4 次)
+22:32-22:32  explorer.exe - Program Manager (键盘 0 次，鼠标 3 次)
+22:32-22:33  explorer.exe - 无标题 (键盘 0 次，鼠标 5 次)
+22:33-22:33  Weixin.exe - 微信 (键盘 0 次，鼠标 1 次)
+22:33-22:33  ChatGPT.exe - Claude.md 及类似文件 (键盘 12 次，鼠标 2 次)
+22:33-22:33  ChatGPT.exe - ChatGPT (键盘 4 次，鼠标 1 次)
+22:33-22:33  Weixin.exe - 微信 (键盘 0 次，鼠标 0 次)
+22:33-22:34  msedge.exe - turtleneck1109-design - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:34-22:34  msedge.exe - turtleneck1109-design/SoccerRobot - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:34-22:34  msedge.exe - Turtleneck911 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 2 次)
+22:34-22:34  Weixin.exe - 微信 (键盘 0 次，鼠标 0 次)
+22:34-22:34  msedge.exe - Turtleneck911 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 2 次)
+22:34-22:34  msedge.exe - turtleneck1109-design/SoccerRobot - 个人 - Microsoft​ Edge (键盘 4 次，鼠标 1 次)
+22:34-22:34  SnippingTool.exe - 截图工具覆盖 (键盘 0 次，鼠标 2 次)
+22:34-22:35  ChatGPT.exe - 整理GitHub仓库 (键盘 21 次，鼠标 2 次)
+22:35-22:35  Weixin.exe - 微信 (键盘 14 次，鼠标 1 次)
+22:35-22:35  ChatGPT.exe - 整理GitHub仓库 (键盘 38 次，鼠标 1 次)
+22:35-22:35  msedge.exe - turtleneck1109-design/SoccerRobot - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 4 次)
+22:35-22:36  msedge.exe - 登录到 Canvas 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:36-22:36  msedge.exe - 控制面板 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:36-22:36  msedge.exe - Calendar 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 2 次)
+22:36-22:36  msedge.exe - 数字电子技术 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 2 次)
+22:36-22:36  msedge.exe - 作业: 数字电子技术 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 2 次)
+22:36-22:37  msedge.exe - 陈卓远 的评分: 数字电子技术 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 6 次)
+22:37-22:37  msedge.exe - turtleneck1109-design/SoccerRobot 和另外 1 个页面 - 个人 - Microsoft​ Edge (键盘 0 次，鼠标 1 次)
+22:37-22:38  ChatGPT.exe - 整理GitHub仓库 (键盘 0 次，鼠标 3 次)
+22:38-22:38  Weixin.exe - 微信 (键盘 0 次，鼠标 2 次)
+22:38-22:38  explorer.exe - 计算机工程实践czy - 文件资源管理器 (键盘 0 次，鼠标 3 次)
+22:38-22:38  WindowsTerminal.exe - Windows PowerShell (键盘 1 次，鼠标 1 次)
+22:38-22:38  explorer.exe - 计算机工程实践czy - 文件资源管理器 (键盘 1 次，鼠标 6 次)
+22:38-22:38  explorer.exe - 无标题 (键盘 0 次，鼠标 2 次)
+22:38-22:39  ChatGPT.exe - 整理GitHub仓库 (键盘 8 次，鼠标 5 次)
+22:39-22:39  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 1 次，鼠标 1 次)
+22:39-22:39  ChatGPT.exe - 整理GitHub仓库 (键盘 0 次，鼠标 1 次)
+22:39-22:39  Code.exe - work_tracker.py - 自动检测 - Visual Studio Code (键盘 0 次，鼠标 2 次)
+22:39-22:39  ChatGPT.exe - 整理GitHub仓库 (键盘 0 次，鼠标 1 次)
+22:39-22:39  explorer.exe - 计算机工程实践czy - 文件资源管理器 (键盘 0 次，鼠标 3 次)
+22:39-22:39  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 2 次)
+22:39-22:39  WindowsTerminal.exe - C:\WINDOWS\system32\cmd.exe (键盘 1 次，鼠标 2 次)
+22:39-22:40  explorer.exe - data - 文件资源管理器 (键盘 0 次，鼠标 1 次)
+22:40-22:40  explorer.exe - 自动检测 - 文件资源管理器 (键盘 1 次，鼠标 4 次)
+23:24-23:24  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 0 次)
+23:24-23:24  python.exe - 本地工作记录 (键盘 0 次，鼠标 2 次)
+23:24-23:24  explorer.exe - 自动检测 - 文件资源管理器 (键盘 0 次，鼠标 4 次)

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="720" viewBox="0 0 1100 720">
+<rect width="100%" height="100%" fill="#f8fafc"/>
+<style>text{font-family:Segoe UI,Microsoft YaHei,Arial,sans-serif;fill:#0f172a}.muted{fill:#64748b}.small{font-size:13px}.label{font-size:14px}.title{font-size:26px;font-weight:700}.metric{font-size:18px;font-weight:600}</style>
+<text x="56" y="52" class="title">Daily Activity Chart - 2026-05-08</text>
+<text x="56" y="88" class="metric">Active: 30分钟</text>
+<text x="300" y="88" class="metric">Idle: 0分钟</text>
+<text x="500" y="88" class="metric">Keys: 386</text>
+<text x="650" y="88" class="metric">Mouse: 174</text>
+<text x="56" y="132" class="label">Top applications</text>
+<text x="56" y="180" class="small">Code.exe</text>
+<rect x="220" y="162" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="162" width="620" height="22" rx="4" fill="#2563eb"/>
+<text x="856" y="179" class="small muted">10分钟</text>
+<text x="56" y="214" class="small">ChatGPT.exe</text>
+<rect x="220" y="196" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="196" width="512" height="22" rx="4" fill="#059669"/>
+<text x="856" y="213" class="small muted">8分钟</text>
+<text x="56" y="248" class="small">msedge.exe</text>
+<rect x="220" y="230" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="230" width="179" height="22" rx="4" fill="#d97706"/>
+<text x="856" y="247" class="small muted">3分钟</text>
+<text x="56" y="282" class="small">explorer.exe</text>
+<rect x="220" y="264" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="264" width="173" height="22" rx="4" fill="#7c3aed"/>
+<text x="856" y="281" class="small muted">3分钟</text>
+<text x="56" y="316" class="small">哔哩哔哩.exe</text>
+<rect x="220" y="298" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="298" width="149" height="22" rx="4" fill="#dc2626"/>
+<text x="856" y="315" class="small muted">2分钟</text>
+<text x="56" y="350" class="small">Weixin.exe</text>
+<rect x="220" y="332" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="332" width="62" height="22" rx="4" fill="#0891b2"/>
+<text x="856" y="349" class="small muted">1分钟</text>
+<text x="56" y="384" class="small">Typora.exe</text>
+<rect x="220" y="366" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="366" width="34" height="22" rx="4" fill="#4f46e5"/>
+<text x="856" y="383" class="small muted">0分钟</text>
+<text x="56" y="418" class="small">WindowsTerminal.exe</text>
+<rect x="220" y="400" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="400" width="14" height="22" rx="4" fill="#65a30d"/>
+<text x="856" y="417" class="small muted">0分钟</text>
+<text x="56" y="452" class="small">SnippingTool.exe</text>
+<rect x="220" y="434" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="434" width="14" height="22" rx="4" fill="#2563eb"/>
+<text x="856" y="451" class="small muted">0分钟</text>
+<text x="56" y="486" class="small">wscript.exe</text>
+<rect x="220" y="468" width="620" height="22" rx="4" fill="#e2e8f0"/>
+<rect x="220" y="468" width="9" height="22" rx="4" fill="#059669"/>
+<text x="856" y="485" class="small muted">0分钟</text>
+<text x="56" y="516" class="label">Hourly activity</text>
+<line x1="56" y1="632" x2="1044" y2="632" stroke="#cbd5e1"/>
+<rect x="60.0" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="60.0" y="652" class="small muted">00</text>
+<rect x="101.2" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="142.3" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="142.3" y="652" class="small muted">02</text>
+<rect x="183.5" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="224.7" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="224.7" y="652" class="small muted">04</text>
+<rect x="265.8" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="307.0" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="307.0" y="652" class="small muted">06</text>
+<rect x="348.2" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="389.3" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="389.3" y="652" class="small muted">08</text>
+<rect x="430.5" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="471.7" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="471.7" y="652" class="small muted">10</text>
+<rect x="512.8" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="554.0" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="554.0" y="652" class="small muted">12</text>
+<rect x="595.2" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="636.3" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="636.3" y="652" class="small muted">14</text>
+<rect x="677.5" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="718.7" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="718.7" y="652" class="small muted">16</text>
+<rect x="759.8" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="801.0" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="801.0" y="652" class="small muted">18</text>
+<rect x="842.2" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="883.3" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<text x="883.3" y="652" class="small muted">20</text>
+<rect x="924.5" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="965.7" y="540" width="33.2" height="92" rx="3" fill="#2563eb"/>
+<text x="965.7" y="652" class="small muted">22</text>
+<rect x="1006.8" y="632" width="33.2" height="0" rx="3" fill="#2563eb"/>
+<rect x="56" y="678" width="16" height="10" fill="#2563eb"/>
+<text x="80" y="687" class="small muted">active</text>
+<rect x="156" y="678" width="16" height="10" fill="#94a3b8"/>
+<text x="180" y="687" class="small muted">idle</text>
+</svg>
