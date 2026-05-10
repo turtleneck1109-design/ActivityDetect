@@ -21,6 +21,8 @@ STOP_FILE = DATA_DIR / "tracker.stop"
 REPORT_REQUEST_FILE = DATA_DIR / "report.request"
 REPORT_RESPONSE_FILE = DATA_DIR / "report.response"
 EVENT_COLUMNS = ["start", "end", "seconds", "app", "title", "state", "key_presses", "mouse_clicks"]
+UNKNOWN_SLEEP_APP = "unknown"
+UNKNOWN_SLEEP_TITLES = {"", "无标题", "Untitled"}
 
 
 user32 = ctypes.windll.user32
@@ -135,7 +137,20 @@ def get_foreground_activity():
     return app, title
 
 
+def is_unknown_sleep_event(app, title):
+    app_name = (app or "").strip().lower()
+    window_title = " ".join((title or "").split())
+    return app_name == UNKNOWN_SLEEP_APP and window_title in UNKNOWN_SLEEP_TITLES
+
+
+def normalize_activity(app, title, state):
+    if state == "active" and is_unknown_sleep_event(app, title):
+        return app, title, "idle"
+    return app, title, state
+
+
 def append_event(start, end, app, title, state, key_presses=0, mouse_clicks=0):
+    app, title, state = normalize_activity(app, title, state)
     seconds = max(0, int((end - start).total_seconds()))
     if seconds <= 0:
         return
@@ -209,13 +224,17 @@ def read_events_for_day(day):
             end = dt.datetime.fromisoformat(row["end"])
             if end < day_start or start > day_end:
                 continue
+            app = row["app"]
+            title = row["title"]
+            state = row["state"]
+            app, title, state = normalize_activity(app, title, state)
             rows.append({
                 "start": max(start, day_start),
                 "end": min(end, day_end),
                 "seconds": int(row["seconds"]),
-                "app": row["app"],
-                "title": row["title"],
-                "state": row["state"],
+                "app": app,
+                "title": title,
+                "state": state,
                 "key_presses": int(row.get("key_presses") or 0),
                 "mouse_clicks": int(row.get("mouse_clicks") or 0),
             })
