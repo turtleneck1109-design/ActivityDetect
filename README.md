@@ -88,7 +88,7 @@ start_background.vbs
 generate_today_report.bat
 ```
 
-窗口里会显示生成进度和报告路径。
+窗口里会询问是否生成后立即打开日报与图表；选择 `Y` 后会使用系统默认程序打开两个文件。
 
 ### 3. 停止后台记录
 
@@ -156,6 +156,12 @@ python work_tracker.py report --day today
 ```text
 data/work_log_YYYY-MM-DD.txt
 data/work_chart_YYYY-MM-DD.svg
+```
+
+如需生成后立即打开两个文件：
+
+```powershell
+python work_tracker.py report --day today --open
 ```
 
 ### 生成指定日期日报

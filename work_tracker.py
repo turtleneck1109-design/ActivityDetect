@@ -496,6 +496,21 @@ def save_daily_outputs(day):
     return report_path, chart_path
 
 
+def open_daily_outputs(report_path, chart_path):
+    failures = []
+    for path in (report_path, chart_path):
+        try:
+            os.startfile(str(path))
+        except OSError as exc:
+            failures.append((path, exc))
+
+    if failures:
+        for path, exc in failures:
+            print(f"无法打开 {path}: {exc}")
+        return 1
+    return 0
+
+
 def save_daily_outputs_safely(day, reason):
     try:
         return save_daily_outputs(day)
@@ -797,6 +812,7 @@ def main():
 
     report_cmd = subparsers.add_parser("report", help="生成日报")
     report_cmd.add_argument("--day", default="today", help="today、yesterday 或 YYYY-MM-DD")
+    report_cmd.add_argument("--open", action="store_true", dest="open_outputs", help="生成后打开日报和图表")
 
     subparsers.add_parser("stop", help="停止后台记录")
     subparsers.add_parser("status", help="查看后台记录状态")
@@ -829,6 +845,8 @@ def main():
             report_path, chart_path = requested_paths
         print(report_path)
         print(chart_path)
+        if args.open_outputs:
+            return open_daily_outputs(report_path, chart_path)
         return 0
     if args.command == "stop":
         return stop_tracker()
