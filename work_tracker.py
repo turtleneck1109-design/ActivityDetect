@@ -5,9 +5,8 @@ import datetime as dt
 import html
 import os
 import signal
-import subprocess
-import sys
 import time
+import traceback
 from ctypes import wintypes
 from pathlib import Path
 
@@ -21,12 +20,30 @@ STOP_FILE = DATA_DIR / "tracker.stop"
 REPORT_REQUEST_FILE = DATA_DIR / "report.request"
 REPORT_RESPONSE_FILE = DATA_DIR / "report.response"
 EVENT_COLUMNS = ["start", "end", "seconds", "app", "title", "state", "key_presses", "mouse_clicks"]
+INSTANCE_MUTEX_NAME = r"Local\LocalWorkTracker_Running"
 UNKNOWN_SLEEP_APP = "unknown"
 UNKNOWN_SLEEP_TITLES = {"", "无标题", "Untitled"}
+PENDING_EVENTS = []
+EVENTS_WRITE_BLOCKED = False
 
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+kernel32.CreateMutexW.restype = wintypes.HANDLE
+kernel32.OpenMutexW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+kernel32.OpenMutexW.restype = wintypes.HANDLE
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.LPWSTR,
+    ctypes.POINTER(wintypes.DWORD),
+]
+kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 class LASTINPUTINFO(ctypes.Structure):
@@ -38,7 +55,7 @@ class LASTINPUTINFO(ctypes.Structure):
 
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 SYNCHRONIZE = 0x00100000
-WAIT_TIMEOUT = 0x00000102
+ERROR_ALREADY_EXISTS = 183
 KEY_DOWN_MASK = 0x8000
 MOUSE_BUTTON_KEYS = {1, 2, 4, 5, 6}
 KEYBOARD_KEYS = [vk for vk in range(8, 256) if vk not in MOUSE_BUTTON_KEYS]
@@ -150,31 +167,56 @@ def normalize_activity(app, title, state):
 
 
 def append_event(start, end, app, title, state, key_presses=0, mouse_clicks=0):
+    global EVENTS_WRITE_BLOCKED
     app, title, state = normalize_activity(app, title, state)
     seconds = max(0, int((end - start).total_seconds()))
     if seconds <= 0:
         return
 
-    with EVENTS_FILE.open("a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            start.isoformat(sep=" "),
-            end.isoformat(sep=" "),
-            seconds,
-            app,
-            title,
-            state,
-            int(key_presses),
-            int(mouse_clicks),
-        ])
+    PENDING_EVENTS.append([
+        start.isoformat(sep=" "),
+        end.isoformat(sep=" "),
+        seconds,
+        app,
+        title,
+        state,
+        int(key_presses),
+        int(mouse_clicks),
+    ])
+    try:
+        with EVENTS_FILE.open("a", newline="", encoding="utf-8-sig") as f:
+            csv.writer(f).writerows(PENDING_EVENTS)
+        PENDING_EVENTS.clear()
+        if EVENTS_WRITE_BLOCKED:
+            write_runtime_log("events.csv became writable again; queued records saved")
+            EVENTS_WRITE_BLOCKED = False
+    except OSError as exc:
+        if not EVENTS_WRITE_BLOCKED:
+            write_runtime_log(f"events.csv temporarily unavailable; records will be retried: {exc!r}")
+            EVENTS_WRITE_BLOCKED = True
+
+
+def acquire_instance_mutex():
+    handle = kernel32.CreateMutexW(None, False, INSTANCE_MUTEX_NAME)
+    if not handle:
+        raise ctypes.WinError()
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(handle)
+        raise RuntimeError("记录程序已经在运行")
+    return handle
+
+
+def tracker_instance_exists():
+    handle = kernel32.OpenMutexW(SYNCHRONIZE, False, INSTANCE_MUTEX_NAME)
+    if not handle:
+        return False
+    kernel32.CloseHandle(handle)
+    return True
 
 
 def write_pid():
     ensure_data_dir()
     if PID_FILE.exists():
-        pid_text = PID_FILE.read_text(encoding="utf-8").strip()
-        if pid_text.isdigit() and process_exists(int(pid_text)):
-            raise RuntimeError(f"记录程序已经在运行，进程号: {pid_text}")
         PID_FILE.unlink()
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
 
@@ -187,29 +229,20 @@ def clear_pid():
         pass
 
 
+def clear_stale_state():
+    for path in (PID_FILE, STOP_FILE):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def clear_stop_file():
     try:
         if STOP_FILE.exists():
             STOP_FILE.unlink()
     except OSError:
         pass
-
-
-def process_exists(pid):
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    result = subprocess.run(
-        [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            f"if (Get-Process -Id {int(pid)} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
-        ],
-        capture_output=True,
-        text=True,
-        startupinfo=startupinfo,
-    )
-    return result.returncode == 0
 
 
 def read_events_for_day(day):
@@ -220,23 +253,29 @@ def read_events_for_day(day):
 
     with EVENTS_FILE.open("r", newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
-            start = dt.datetime.fromisoformat(row["start"])
-            end = dt.datetime.fromisoformat(row["end"])
+            try:
+                start = dt.datetime.fromisoformat(row["start"].lstrip("\x00"))
+                end = dt.datetime.fromisoformat(row["end"])
+                seconds = int(row["seconds"])
+                app = row["app"]
+                title = row["title"]
+                state = row["state"]
+                key_presses = int(row.get("key_presses") or 0)
+                mouse_clicks = int(row.get("mouse_clicks") or 0)
+            except (KeyError, TypeError, ValueError):
+                continue
             if end < day_start or start > day_end:
                 continue
-            app = row["app"]
-            title = row["title"]
-            state = row["state"]
             app, title, state = normalize_activity(app, title, state)
             rows.append({
                 "start": max(start, day_start),
                 "end": min(end, day_end),
-                "seconds": int(row["seconds"]),
+                "seconds": seconds,
                 "app": app,
                 "title": title,
                 "state": state,
-                "key_presses": int(row.get("key_presses") or 0),
-                "mouse_clicks": int(row.get("mouse_clicks") or 0),
+                "key_presses": key_presses,
+                "mouse_clicks": mouse_clicks,
             })
     return rows
 
@@ -247,9 +286,9 @@ def event_dates_before(day):
     with EVENTS_FILE.open("r", newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             try:
-                start_date = dt.datetime.fromisoformat(row["start"]).date()
+                start_date = dt.datetime.fromisoformat(row["start"].lstrip("\x00")).date()
                 end_date = dt.datetime.fromisoformat(row["end"]).date()
-            except (KeyError, ValueError):
+            except (KeyError, TypeError, ValueError):
                 continue
 
             cursor = start_date
@@ -457,6 +496,14 @@ def save_daily_outputs(day):
     return report_path, chart_path
 
 
+def save_daily_outputs_safely(day, reason):
+    try:
+        return save_daily_outputs(day)
+    except Exception as exc:
+        write_runtime_log(f"{reason} report failed for {day.isoformat()}: {exc!r}")
+        return None
+
+
 def backfill_missing_reports(today=None):
     today = today or dt.date.today()
     created = []
@@ -495,10 +542,14 @@ def handle_report_request(current_start, timestamp, app, title, state, activity_
 
     key_presses, mouse_clicks = activity_counter.consume()
     append_event(current_start, timestamp, app, title, state, key_presses, mouse_clicks)
-    report_path, chart_path = save_daily_outputs(day)
-    REPORT_RESPONSE_FILE.write_text(f"OK\n{report_path}\n{chart_path}", encoding="utf-8")
+    paths = save_daily_outputs_safely(day, "requested")
+    if paths is None:
+        REPORT_RESPONSE_FILE.write_text("ERROR\n日报文件暂时无法写入，请稍后重试。", encoding="utf-8")
+    else:
+        report_path, chart_path = paths
+        REPORT_RESPONSE_FILE.write_text(f"OK\n{report_path}\n{chart_path}", encoding="utf-8")
+        write_runtime_log(f"generated requested report for {day.isoformat()}")
     REPORT_REQUEST_FILE.unlink(missing_ok=True)
-    write_runtime_log(f"generated requested report for {day.isoformat()}")
     return timestamp
 
 
@@ -522,11 +573,14 @@ def request_report_from_tracker(day, timeout_seconds=8):
 
 
 def write_runtime_log(message):
-    ensure_data_dir()
-    path = DATA_DIR / "runtime.log"
-    timestamp = now_local().isoformat(sep=" ")
-    with path.open("a", encoding="utf-8-sig") as f:
-        f.write(f"[{timestamp}] {message}\n")
+    try:
+        ensure_data_dir()
+        path = DATA_DIR / "runtime.log"
+        timestamp = now_local().isoformat(sep=" ")
+        with path.open("a", encoding="utf-8-sig") as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except OSError:
+        pass
 
 
 def parse_clock_time(value):
@@ -552,13 +606,16 @@ def next_report_datetime(after, report_time):
     return candidate
 
 
-def run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time):
+def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time):
     ensure_data_dir()
     clear_stop_file()
     clear_report_ipc_files()
     write_pid()
     write_runtime_log("tracker started")
-    backfill_missing_reports()
+    try:
+        backfill_missing_reports()
+    except Exception as exc:
+        write_runtime_log(f"backfill failed during startup: {exc!r}")
 
     stop = False
 
@@ -606,26 +663,39 @@ def run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily
                     report_days.add(next_daily_report_at.date())
                     next_daily_report_at += dt.timedelta(days=1)
                 for report_day in sorted(report_days):
-                    save_daily_outputs(report_day)
+                    save_daily_outputs_safely(report_day, "automatic")
                 current_start = timestamp
                 app, title, state = new_app, new_title, new_state
                 current_key = new_key
-    except Exception as exc:
-        write_runtime_log(f"tracker error: {exc!r}")
+    except Exception:
+        write_runtime_log("tracker error:\n" + traceback.format_exc().rstrip())
         raise
     finally:
         activity_counter.poll()
         key_presses, mouse_clicks = activity_counter.consume()
         append_event(current_start, now_local(), app, title, state, key_presses, mouse_clicks)
-        save_daily_outputs(now_local().date())
+        save_daily_outputs_safely(now_local().date(), "shutdown")
         write_runtime_log("tracker stopped")
         clear_stop_file()
         clear_pid()
 
 
+def run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time):
+    mutex_handle = acquire_instance_mutex()
+    try:
+        _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time)
+    finally:
+        kernel32.CloseHandle(mutex_handle)
+
+
 def stop_tracker():
+    if not tracker_instance_exists():
+        clear_stale_state()
+        print("没有找到正在运行的记录进程；已清理残留状态。")
+        return 0
+
     if not PID_FILE.exists():
-        print("没有找到正在运行的记录进程。")
+        print("记录程序正在启动，请稍后再停止。")
         return 1
 
     pid_text = PID_FILE.read_text(encoding="utf-8").strip()
@@ -634,48 +704,34 @@ def stop_tracker():
         return 1
 
     pid = int(pid_text)
-    if not process_exists(pid):
-        PID_FILE.unlink()
-        clear_stop_file()
-        print("之前的记录进程已经不存在，已清理残留状态。")
-        return 0
-
     STOP_FILE.write_text(now_local().isoformat(sep=" "), encoding="utf-8")
 
     for _ in range(20):
-        if not PID_FILE.exists():
+        if not tracker_instance_exists():
             print(f"已停止记录进程 {pid}，并生成了今天的日报。")
             return 0
         time.sleep(0.5)
 
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError as exc:
-        print(f"已请求停止，但进程未及时退出: {exc}")
-        return 1
-
-    print(f"记录进程 {pid} 未及时响应，已强制停止。")
-    return 0
+    print(f"记录进程 {pid} 未及时响应；为避免误结束其他进程，未进行强制终止。")
+    return 1
 
 
 def tracker_status():
-    if not PID_FILE.exists():
+    if not tracker_instance_exists():
+        clear_stale_state()
         print("未运行")
         return 1
 
+    if not PID_FILE.exists():
+        print("正在启动")
+        return 0
+
     pid_text = PID_FILE.read_text(encoding="utf-8").strip()
     if not pid_text.isdigit():
-        print("状态异常：PID 文件内容异常")
-        return 1
+        print("正在运行，但 PID 文件内容异常")
+        return 0
 
-    pid = int(pid_text)
-    if not process_exists(pid):
-        PID_FILE.unlink()
-        clear_stop_file()
-        print("未运行：发现残留 PID 文件")
-        return 1
-
-    print(f"正在运行，进程号: {pid}")
+    print(f"正在运行，进程号: {pid_text}")
     return 0
 
 
@@ -761,7 +817,7 @@ def main():
     if args.command == "report":
         ensure_data_dir()
         day = parse_day(args.day)
-        tracker_was_running = PID_FILE.exists()
+        tracker_was_running = tracker_instance_exists()
         requested_paths = request_report_from_tracker(day) if tracker_was_running else None
         if requested_paths is None:
             if tracker_was_running:
