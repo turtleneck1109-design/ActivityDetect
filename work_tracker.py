@@ -23,6 +23,11 @@ EVENT_COLUMNS = ["start", "end", "seconds", "app", "title", "state", "key_presse
 INSTANCE_MUTEX_NAME = r"Local\LocalWorkTracker_Running"
 UNKNOWN_SLEEP_APP = "unknown"
 UNKNOWN_SLEEP_TITLES = {"", "无标题", "Untitled"}
+LOCK_SCREEN_APPS = {"lockapp.exe"}
+SLEEP_BRIDGE_APPS = {"startmenuexperiencehost.exe"}
+LEGACY_IDLE_SECONDS = 300
+UNOBSERVED_APP = "idle"
+UNOBSERVED_TITLE = "系统睡眠或采样暂停"
 PENDING_EVENTS = []
 EVENTS_WRITE_BLOCKED = False
 
@@ -160,18 +165,25 @@ def is_unknown_sleep_event(app, title):
     return app_name == UNKNOWN_SLEEP_APP and window_title in UNKNOWN_SLEEP_TITLES
 
 
-def normalize_activity(app, title, state):
-    if state == "active" and is_unknown_sleep_event(app, title):
+def normalize_activity(app, title, state, seconds=0, key_presses=0, mouse_clicks=0):
+    if state != "active":
+        return app, title, state
+
+    app_name = (app or "").strip().lower()
+    no_input = int(key_presses or 0) == 0 and int(mouse_clicks or 0) == 0
+    if is_unknown_sleep_event(app, title) or app_name in LOCK_SCREEN_APPS:
+        return app, title, "idle"
+    if app_name in SLEEP_BRIDGE_APPS and seconds >= LEGACY_IDLE_SECONDS and no_input:
         return app, title, "idle"
     return app, title, state
 
 
 def append_event(start, end, app, title, state, key_presses=0, mouse_clicks=0):
     global EVENTS_WRITE_BLOCKED
-    app, title, state = normalize_activity(app, title, state)
     seconds = max(0, int((end - start).total_seconds()))
     if seconds <= 0:
         return
+    app, title, state = normalize_activity(app, title, state, seconds, key_presses, mouse_clicks)
 
     PENDING_EVENTS.append([
         start.isoformat(sep=" "),
@@ -266,7 +278,7 @@ def read_events_for_day(day):
                 continue
             if end < day_start or start > day_end:
                 continue
-            app, title, state = normalize_activity(app, title, state)
+            app, title, state = normalize_activity(app, title, state, seconds, key_presses, mouse_clicks)
             rows.append({
                 "start": max(start, day_start),
                 "end": min(end, day_end),
@@ -648,10 +660,39 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
     activity_counter = ActivityCounter()
     next_sample_at = time.monotonic() + sample_seconds
     next_daily_report_at = next_report_datetime(current_start, daily_report_time)
+    last_poll_at = current_start
+    unobserved_after_seconds = max(15, sample_seconds * 3, activity_poll_seconds * 20)
+
+    def save_reports_through(previous_start, timestamp):
+        nonlocal next_daily_report_at
+        report_days = set()
+        if previous_start.date() != timestamp.date():
+            report_days.add(previous_start.date())
+        while next_daily_report_at is not None and timestamp >= next_daily_report_at:
+            report_days.add(next_daily_report_at.date())
+            next_daily_report_at += dt.timedelta(days=1)
+        for report_day in sorted(report_days):
+            save_daily_outputs_safely(report_day, "automatic")
 
     try:
         while not stop and not STOP_FILE.exists():
             time.sleep(activity_poll_seconds)
+            timestamp = now_local()
+            gap_seconds = int((timestamp - last_poll_at).total_seconds())
+            if gap_seconds >= unobserved_after_seconds:
+                key_presses, mouse_clicks = activity_counter.consume()
+                append_event(current_start, last_poll_at, app, title, state, key_presses, mouse_clicks)
+                append_event(last_poll_at, timestamp, UNOBSERVED_APP, UNOBSERVED_TITLE, "idle")
+                write_runtime_log(f"marked {gap_seconds} seconds without samples as idle")
+                save_reports_through(current_start, timestamp)
+
+                state = "idle" if get_idle_seconds() >= idle_after_seconds else "active"
+                app, title = ("idle", "用户空闲") if state == "idle" else get_foreground_activity()
+                current_key = (app, title, state)
+                current_start = timestamp
+                next_sample_at = time.monotonic() + sample_seconds
+
+            last_poll_at = timestamp
             activity_counter.poll()
             if REPORT_REQUEST_FILE.exists():
                 current_start = handle_report_request(current_start, now_local(), app, title, state, activity_counter)
@@ -671,14 +712,7 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
             if new_key != current_key or crossed_midnight or report_due:
                 key_presses, mouse_clicks = activity_counter.consume()
                 append_event(current_start, timestamp, app, title, state, key_presses, mouse_clicks)
-                report_days = set()
-                if crossed_midnight:
-                    report_days.add(current_start.date())
-                while next_daily_report_at is not None and timestamp >= next_daily_report_at:
-                    report_days.add(next_daily_report_at.date())
-                    next_daily_report_at += dt.timedelta(days=1)
-                for report_day in sorted(report_days):
-                    save_daily_outputs_safely(report_day, "automatic")
+                save_reports_through(current_start, timestamp)
                 current_start = timestamp
                 app, title, state = new_app, new_title, new_state
                 current_key = new_key
@@ -686,9 +720,15 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
         write_runtime_log("tracker error:\n" + traceback.format_exc().rstrip())
         raise
     finally:
+        timestamp = now_local()
+        gap_seconds = int((timestamp - last_poll_at).total_seconds())
         activity_counter.poll()
         key_presses, mouse_clicks = activity_counter.consume()
-        append_event(current_start, now_local(), app, title, state, key_presses, mouse_clicks)
+        if gap_seconds >= unobserved_after_seconds:
+            append_event(current_start, last_poll_at, app, title, state, key_presses, mouse_clicks)
+            append_event(last_poll_at, timestamp, UNOBSERVED_APP, UNOBSERVED_TITLE, "idle")
+        else:
+            append_event(current_start, timestamp, app, title, state, key_presses, mouse_clicks)
         save_daily_outputs_safely(now_local().date(), "shutdown")
         write_runtime_log("tracker stopped")
         clear_stop_file()
