@@ -15,6 +15,7 @@ APP_NAME = "LocalWorkTracker"
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 EVENTS_FILE = DATA_DIR / "events.csv"
+DASHBOARD_FILE = DATA_DIR / "activity_dashboard.html"
 PID_FILE = DATA_DIR / "tracker.pid"
 STOP_FILE = DATA_DIR / "tracker.stop"
 REPORT_REQUEST_FILE = DATA_DIR / "report.request"
@@ -502,15 +503,151 @@ def save_activity_chart(day):
     return path
 
 
+def dashboard_chart_days():
+    days = []
+    for path in DATA_DIR.glob("work_chart_*.svg"):
+        try:
+            days.append(dt.date.fromisoformat(path.stem[len("work_chart_"):]))
+        except ValueError:
+            continue
+    return sorted(set(days), reverse=True)
+
+
+def save_activity_dashboard():
+    days = dashboard_chart_days()
+    summaries = []
+    total_active = 0
+    total_idle = 0
+    total_keys = 0
+    total_mouse = 0
+
+    for day in days:
+        rows = read_events_for_day(day)
+        active_rows = [row for row in rows if row["state"] == "active"]
+        idle_rows = [row for row in rows if row["state"] == "idle"]
+        app_totals = {}
+        key_total = 0
+        mouse_total = 0
+        for row in active_rows:
+            seconds = max(0, int((row["end"] - row["start"]).total_seconds()))
+            app_totals[row["app"]] = app_totals.get(row["app"], 0) + seconds
+            key_total += row["key_presses"]
+            mouse_total += row["mouse_clicks"]
+
+        active_seconds = sum(app_totals.values())
+        idle_seconds = sum(
+            max(0, int((row["end"] - row["start"]).total_seconds()))
+            for row in idle_rows
+        )
+        top_app = max(app_totals.items(), key=lambda item: item[1])[0] if app_totals else "无活动记录"
+        summaries.append((day, active_seconds, idle_seconds, key_total, mouse_total, top_app))
+        total_active += active_seconds
+        total_idle += idle_seconds
+        total_keys += key_total
+        total_mouse += mouse_total
+
+    nav_items = []
+    cards = []
+    for day, active_seconds, idle_seconds, key_total, mouse_total, top_app in summaries:
+        date_text = day.isoformat()
+        chart_name = f"work_chart_{date_text}.svg"
+        report_name = f"work_log_{date_text}.txt"
+        report_link = ""
+        if (DATA_DIR / report_name).exists():
+            report_link = f'<a class="secondary" href="{html.escape(report_name)}">文字日报</a>'
+        nav_items.append(
+            f'<a href="#day-{date_text}"><strong>{date_text}</strong>'
+            f'<span>{html.escape(fmt_duration(active_seconds))}</span></a>'
+        )
+        cards.append(
+            f'<section class="day-card" id="day-{date_text}">'
+            f'<header><div><h2>{date_text}</h2><p>主要应用：{html.escape(top_app)}</p></div>'
+            f'<div class="links">{report_link}'
+            f'<a href="{html.escape(chart_name)}" target="_blank">单独打开图表</a></div></header>'
+            f'<div class="daily-metrics">'
+            f'<span>有效使用 <strong>{html.escape(fmt_duration(active_seconds))}</strong></span>'
+            f'<span>空闲 <strong>{html.escape(fmt_duration(idle_seconds))}</strong></span>'
+            f'<span>键盘 <strong>{key_total}</strong></span>'
+            f'<span>鼠标 <strong>{mouse_total}</strong></span></div>'
+            f'<img loading="lazy" src="{html.escape(chart_name)}" alt="{date_text} 活动图表"></section>'
+        )
+
+    if not cards:
+        cards.append('<section class="empty">暂无已生成的每日活动图表。</section>')
+
+    updated_at = now_local().strftime("%Y-%m-%d %H:%M")
+    document = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电脑活动总览</title>
+<style>
+:root {{ --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --blue:#2563eb; --panel:#ffffff; --bg:#f1f5f9; }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif; color:var(--ink); background:var(--bg); }}
+.hero {{ background:#0f172a; color:#fff; padding:36px max(28px, calc((100vw - 1320px) / 2)); }}
+.hero h1 {{ font-size:32px; margin:0 0 8px; }}
+.hero p {{ color:#cbd5e1; margin:0 0 28px; }}
+.overview {{ display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:14px; max-width:820px; }}
+.metric {{ background:rgba(255,255,255,.09); border-radius:14px; padding:14px 16px; }}
+.metric span {{ display:block; font-size:12px; color:#cbd5e1; margin-bottom:5px; }}
+.metric strong {{ font-size:22px; }}
+.layout {{ display:grid; grid-template-columns:220px minmax(0, 1100px); gap:24px; max-width:1360px; margin:24px auto; padding:0 20px; }}
+nav {{ position:sticky; top:20px; align-self:start; background:var(--panel); border-radius:16px; padding:16px; box-shadow:0 1px 3px rgba(15,23,42,.08); }}
+nav h2 {{ margin:0 0 12px; font-size:15px; }}
+nav a {{ display:flex; justify-content:space-between; gap:6px; color:var(--ink); text-decoration:none; padding:9px 8px; border-radius:8px; font-size:13px; }}
+nav a:hover {{ background:#eff6ff; color:var(--blue); }}
+nav span {{ color:var(--muted); }}
+main {{ display:grid; gap:22px; }}
+.day-card {{ background:var(--panel); border-radius:18px; padding:20px; box-shadow:0 1px 4px rgba(15,23,42,.08); scroll-margin-top:20px; }}
+.day-card header {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }}
+.day-card h2 {{ font-size:22px; margin:0 0 5px; }}
+.day-card header p {{ margin:0; color:var(--muted); font-size:14px; }}
+.links {{ display:flex; gap:8px; }}
+.links a {{ background:var(--blue); color:#fff; padding:9px 12px; border-radius:9px; text-decoration:none; font-size:13px; }}
+.links .secondary {{ background:#e2e8f0; color:var(--ink); }}
+.daily-metrics {{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }}
+.daily-metrics span {{ background:#f8fafc; border:1px solid var(--line); border-radius:9px; padding:8px 11px; font-size:13px; color:var(--muted); }}
+.daily-metrics strong {{ color:var(--ink); margin-left:5px; }}
+.day-card img {{ display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:12px; background:#f8fafc; }}
+.empty {{ background:var(--panel); border-radius:16px; padding:48px; color:var(--muted); text-align:center; }}
+@media (max-width:820px) {{ .overview {{ grid-template-columns:repeat(2,1fr); }} .layout {{ display:block; }} nav {{ position:static; margin-bottom:20px; }} .day-card header {{ display:block; }} .links {{ margin-top:14px; }} }}
+</style>
+</head>
+<body>
+<header class="hero">
+<h1>电脑活动总览</h1>
+<p>汇集全部每日图表 · 最近更新于 {html.escape(updated_at)}</p>
+<div class="overview">
+<div class="metric"><span>已记录日期</span><strong>{len(days)} 天</strong></div>
+<div class="metric"><span>累计有效使用</span><strong>{html.escape(fmt_duration(total_active))}</strong></div>
+<div class="metric"><span>累计空闲</span><strong>{html.escape(fmt_duration(total_idle))}</strong></div>
+<div class="metric"><span>累计输入</span><strong>{total_keys + total_mouse}</strong></div>
+</div>
+</header>
+<div class="layout">
+<nav><h2>按日期查看</h2>{"".join(nav_items)}</nav>
+<main>{"".join(cards)}</main>
+</div>
+</body>
+</html>
+"""
+    DASHBOARD_FILE.write_text(document, encoding="utf-8")
+    return DASHBOARD_FILE
+
+
 def save_daily_outputs(day):
     report_path = save_report(day)
     chart_path = save_activity_chart(day)
+    save_activity_dashboard()
     return report_path, chart_path
 
 
 def open_daily_outputs(report_path, chart_path):
     failures = []
-    for path in (report_path, chart_path):
+    browser_output = DASHBOARD_FILE if DASHBOARD_FILE.exists() else chart_path
+    for path in (report_path, browser_output):
         try:
             os.startfile(str(path))
         except OSError as exc:
@@ -541,6 +678,7 @@ def backfill_missing_reports(today=None):
             continue
         save_daily_outputs(day)
         created.append(day)
+    save_activity_dashboard()
     if created:
         write_runtime_log("backfilled reports: " + ", ".join(day.isoformat() for day in created))
     return created
@@ -852,7 +990,7 @@ def main():
 
     report_cmd = subparsers.add_parser("report", help="生成日报")
     report_cmd.add_argument("--day", default="today", help="today、yesterday 或 YYYY-MM-DD")
-    report_cmd.add_argument("--open", action="store_true", dest="open_outputs", help="生成后打开日报和图表")
+    report_cmd.add_argument("--open", action="store_true", dest="open_outputs", help="生成后打开日报和活动总览")
 
     subparsers.add_parser("stop", help="停止后台记录")
     subparsers.add_parser("status", help="查看后台记录状态")
@@ -885,6 +1023,8 @@ def main():
             report_path, chart_path = requested_paths
         print(report_path)
         print(chart_path)
+        if DASHBOARD_FILE.exists():
+            print(DASHBOARD_FILE)
         if args.open_outputs:
             return open_daily_outputs(report_path, chart_path)
         return 0

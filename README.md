@@ -88,7 +88,7 @@ start_background.vbs
 generate_today_report.bat
 ```
 
-窗口里会询问是否生成后立即打开日报与图表；选择 `Y` 后会使用系统默认程序打开两个文件。
+窗口里会询问是否生成后立即打开日报与活动总览；选择 `Y` 后会打开文字日报和汇集全部日期图表的总览网页。
 
 ### 3. 停止后台记录
 
@@ -98,7 +98,7 @@ generate_today_report.bat
 stop_tracker.bat
 ```
 
-停止时会自动生成今天的日报和图表。
+停止时会自动生成今天的日报、图表并刷新活动总览网页。
 
 ---
 
@@ -115,7 +115,7 @@ stop_tracker.bat
     ↓
 双击 generate_today_report.bat
     ↓
-查看 data 文件夹里的日报和图表
+查看 data 文件夹里的日报和活动总览
     ↓
 双击 stop_tracker.bat 停止记录
 ```
@@ -131,6 +131,7 @@ stop_tracker.bat
 | `events.csv` | 原始记录，包含每段窗口的时间、应用、标题、键盘次数和鼠标次数 |
 | `work_log_YYYY-MM-DD.txt` | 每日文字版工作报告 |
 | `work_chart_YYYY-MM-DD.svg` | 每日活动图表，可用浏览器打开 |
+| `activity_dashboard.html` | 汇总所有已生成每日图表的总览网页 |
 | `runtime.log` | 运行日志 |
 | `startup.log` | 启动日志 |
 | `status.log` | 状态检查日志 |
@@ -156,9 +157,10 @@ python work_tracker.py report --day today
 ```text
 data/work_log_YYYY-MM-DD.txt
 data/work_chart_YYYY-MM-DD.svg
+data/activity_dashboard.html
 ```
 
-如需生成后立即打开两个文件：
+如需生成后立即打开文字日报与活动总览网页：
 
 ```powershell
 python work_tracker.py report --day today --open
