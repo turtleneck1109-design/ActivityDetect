@@ -250,6 +250,64 @@ def clear_stale_state():
             pass
 
 
+def resolve_overlapping_events(rows):
+    """Return a single timeline when recovered or legacy records overlap."""
+    if not rows:
+        return []
+
+    boundaries = sorted({point for row in rows for point in (row["start"], row["end"])})
+    segments = []
+    for start, end in zip(boundaries, boundaries[1:]):
+        if start >= end:
+            continue
+        candidates = [
+            (index, row)
+            for index, row in enumerate(rows)
+            if row["start"] < end and row["end"] > start
+        ]
+        if not candidates:
+            continue
+
+        # A sampled active window is more reliable than an overlapping inferred idle period.
+        source_index, winner = max(
+            candidates,
+            key=lambda item: (item[1]["state"] == "active", item[0]),
+        )
+        segment = dict(winner)
+        segment.update({
+            "start": start,
+            "end": end,
+            "seconds": int((end - start).total_seconds()),
+            "_source_index": source_index,
+        })
+        merge_idle = (
+            segments
+            and segments[-1]["end"] == start
+            and segments[-1]["state"] == "idle"
+            and segment["state"] == "idle"
+        )
+        merge_same_source = (
+            segments
+            and segments[-1]["end"] == start
+            and segments[-1]["_source_index"] == source_index
+        )
+        if merge_idle or merge_same_source:
+            segments[-1]["end"] = end
+            segments[-1]["seconds"] += segment["seconds"]
+        else:
+            segments.append(segment)
+
+    counted_sources = set()
+    for segment in segments:
+        source_index = segment.pop("_source_index")
+        if source_index in counted_sources:
+            segment["key_presses"] = 0
+            segment["mouse_clicks"] = 0
+        else:
+            counted_sources.add(source_index)
+    return segments
+
+
 def clear_stop_file():
     try:
         if STOP_FILE.exists():
@@ -262,7 +320,7 @@ def read_events_for_day(day):
     ensure_data_dir()
     rows = []
     day_start = dt.datetime.combine(day, dt.time.min)
-    day_end = dt.datetime.combine(day, dt.time.max)
+    day_end = day_start + dt.timedelta(days=1)
 
     with EVENTS_FILE.open("r", newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -277,7 +335,7 @@ def read_events_for_day(day):
                 mouse_clicks = int(row.get("mouse_clicks") or 0)
             except (KeyError, TypeError, ValueError):
                 continue
-            if end < day_start or start > day_end:
+            if end <= day_start or start >= day_end:
                 continue
             app, title, state = normalize_activity(app, title, state, seconds, key_presses, mouse_clicks)
             rows.append({
@@ -290,7 +348,7 @@ def read_events_for_day(day):
                 "key_presses": key_presses,
                 "mouse_clicks": mouse_clicks,
             })
-    return rows
+    return resolve_overlapping_events(rows)
 
 
 def event_dates_before(day):
@@ -320,15 +378,78 @@ def fmt_duration(seconds):
     return f"{minutes}分钟"
 
 
+def fmt_precise_duration(seconds):
+    seconds = int(seconds)
+    hours, rem = divmod(seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours}小时{minutes:02d}分钟{seconds:02d}秒"
+    if minutes:
+        return f"{minutes}分钟{seconds:02d}秒"
+    return f"{seconds}秒"
+
+
 def title_key(title):
     cleaned = " ".join((title or "无标题").split())
     return cleaned[:80]
+
+
+def observation_end_for_day(day, timestamp=None):
+    timestamp = timestamp or now_local()
+    day_start = dt.datetime.combine(day, dt.time.min)
+    day_end = day_start + dt.timedelta(days=1)
+    if day < timestamp.date():
+        return day_end
+    if day > timestamp.date():
+        return day_start
+    return min(day_end, timestamp)
+
+
+def unrecorded_rows_for_day(rows, day, timestamp=None):
+    day_start = dt.datetime.combine(day, dt.time.min)
+    observed_end = observation_end_for_day(day, timestamp)
+    cursor = day_start
+    gaps = []
+
+    for row in rows:
+        if cursor >= observed_end:
+            break
+        if row["end"] <= cursor:
+            continue
+        segment_start = min(max(row["start"], day_start), observed_end)
+        if cursor < segment_start:
+            gaps.append({
+                "start": cursor,
+                "end": segment_start,
+                "seconds": int((segment_start - cursor).total_seconds()),
+                "app": "unrecorded",
+                "title": "未统计",
+                "state": "unrecorded",
+                "key_presses": 0,
+                "mouse_clicks": 0,
+            })
+        cursor = max(cursor, min(row["end"], observed_end))
+
+    if cursor < observed_end:
+        gaps.append({
+            "start": cursor,
+            "end": observed_end,
+            "seconds": int((observed_end - cursor).total_seconds()),
+            "app": "unrecorded",
+            "title": "未统计",
+            "state": "unrecorded",
+            "key_presses": 0,
+            "mouse_clicks": 0,
+        })
+    return gaps
 
 
 def build_report(day):
     rows = read_events_for_day(day)
     active_rows = [r for r in rows if r["state"] == "active"]
     idle_rows = [r for r in rows if r["state"] == "idle"]
+    unrecorded_rows = unrecorded_rows_for_day(rows, day)
+    timeline_rows = sorted(rows + unrecorded_rows, key=lambda row: row["start"])
 
     app_totals = {}
     title_totals = {}
@@ -344,6 +465,7 @@ def build_report(day):
 
     total_active = sum(app_totals.values())
     total_idle = sum(max(0, int((r["end"] - r["start"]).total_seconds())) for r in idle_rows)
+    total_unrecorded = sum(row["seconds"] for row in unrecorded_rows)
     active_minutes = max(1, total_active / 60)
     key_rate = key_total / active_minutes
     mouse_rate = mouse_total / active_minutes
@@ -353,6 +475,7 @@ def build_report(day):
         "=" * 32,
         f"有效使用时长: {fmt_duration(total_active)}",
         f"空闲时长: {fmt_duration(total_idle)}",
+        f"未统计时长: {fmt_precise_duration(total_unrecorded)}",
         f"键盘输入次数: {key_total} 次，平均 {key_rate:.1f} 次/分钟",
         f"鼠标点击次数: {mouse_total} 次，平均 {mouse_rate:.1f} 次/分钟",
         "",
@@ -374,12 +497,14 @@ def build_report(day):
         lines.append("暂无有效记录")
 
     lines.extend(["", "时间线", "-" * 32])
-    if rows:
-        for row in rows:
+    if timeline_rows:
+        for row in timeline_rows:
             start = row["start"].strftime("%H:%M")
             end = row["end"].strftime("%H:%M")
             if row["state"] == "idle":
                 label = "空闲"
+            elif row["state"] == "unrecorded":
+                label = f"未统计（{fmt_precise_duration(row['seconds'])}）"
             else:
                 label = (
                     f"{row['app']} - {title_key(row['title'])} "
@@ -432,6 +557,16 @@ def save_activity_chart(day):
                 hourly_active[cursor.hour] += seconds
             cursor = segment_end
 
+    hourly_unrecorded = [0] * 24
+    for row in unrecorded_rows_for_day(rows, day):
+        cursor = row["start"]
+        while cursor < row["end"]:
+            next_hour = cursor.replace(minute=0, second=0) + dt.timedelta(hours=1)
+            segment_end = min(row["end"], next_hour)
+            hourly_unrecorded[cursor.hour] += max(0, int((segment_end - cursor).total_seconds()))
+            cursor = segment_end
+    unrecorded_total = sum(hourly_unrecorded)
+
     width = 1100
     height = 720
     margin = 56
@@ -450,6 +585,7 @@ def save_activity_chart(day):
         f'<text x="300" y="88" class="metric">Idle: {html.escape(fmt_duration(idle_total))}</text>',
         f'<text x="500" y="88" class="metric">Keys: {key_total}</text>',
         f'<text x="650" y="88" class="metric">Mouse: {mouse_total}</text>',
+        f'<text x="820" y="88" class="metric">Unrecorded: {html.escape(fmt_precise_duration(unrecorded_total))}</text>',
         f'<text x="{margin}" y="132" class="label">Top applications</text>',
     ]
 
@@ -472,7 +608,6 @@ def save_activity_chart(day):
     chart_left = margin
     chart_width = width - margin * 2
     chart_height = 92
-    max_hour_seconds = max(hourly_active + hourly_idle + [1])
     slot = chart_width / 24
     parts.extend([
         f'<text x="{margin}" y="{chart_top - 24}" class="label">Hourly activity</text>',
@@ -481,12 +616,16 @@ def save_activity_chart(day):
 
     for hour in range(24):
         x = chart_left + hour * slot + 4
-        active_h = int((hourly_active[hour] / max_hour_seconds) * chart_height)
-        idle_h = int((hourly_idle[hour] / max_hour_seconds) * chart_height)
+        active_h = int((hourly_active[hour] / 3600) * chart_height)
+        idle_h = int((hourly_idle[hour] / 3600) * chart_height)
+        unrecorded_h = int((hourly_unrecorded[hour] / 3600) * chart_height)
         base = chart_top + chart_height
+        parts.append(f'<rect x="{x:.1f}" y="{chart_top}" width="{slot - 8:.1f}" height="{chart_height}" rx="3" fill="#f1f5f9" stroke="#e2e8f0"/>')
         parts.append(f'<rect x="{x:.1f}" y="{base - active_h}" width="{slot - 8:.1f}" height="{active_h}" rx="3" fill="#2563eb"/>')
         if idle_h:
             parts.append(f'<rect x="{x:.1f}" y="{base - active_h - idle_h}" width="{slot - 8:.1f}" height="{idle_h}" rx="3" fill="#94a3b8"/>')
+        if unrecorded_h:
+            parts.append(f'<rect x="{x:.1f}" y="{base - active_h - idle_h - unrecorded_h}" width="{slot - 8:.1f}" height="{unrecorded_h}" rx="3" fill="#cbd5e1"/>')
         if hour % 2 == 0:
             parts.append(f'<text x="{x:.1f}" y="{base + 20}" class="small muted">{hour:02d}</text>')
 
@@ -495,6 +634,8 @@ def save_activity_chart(day):
         f'<text x="{margin + 24}" y="{height - 33}" class="small muted">active</text>',
         f'<rect x="{margin + 100}" y="{height - 42}" width="16" height="10" fill="#94a3b8"/>',
         f'<text x="{margin + 124}" y="{height - 33}" class="small muted">idle</text>',
+        f'<rect x="{margin + 184}" y="{height - 42}" width="16" height="10" fill="#cbd5e1"/>',
+        f'<text x="{margin + 208}" y="{height - 33}" class="small muted">unrecorded</text>',
         '</svg>',
     ])
 
@@ -702,7 +843,16 @@ def handle_report_request(current_start, timestamp, app, title, state, activity_
         day = parse_day(day_text)
     except Exception as exc:
         REPORT_RESPONSE_FILE.write_text(f"ERROR\n{exc}", encoding="utf-8")
-        REPORT_REQUEST_FILE.unlink(missing_ok=True)
+        try:
+            REPORT_REQUEST_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return current_start
+
+    try:
+        REPORT_REQUEST_FILE.unlink()
+    except OSError as exc:
+        write_runtime_log(f"report request file temporarily unavailable; will retry: {exc!r}")
         return current_start
 
     key_presses, mouse_clicks = activity_counter.consume()
@@ -714,7 +864,6 @@ def handle_report_request(current_start, timestamp, app, title, state, activity_
         report_path, chart_path = paths
         REPORT_RESPONSE_FILE.write_text(f"OK\n{report_path}\n{chart_path}", encoding="utf-8")
         write_runtime_log(f"generated requested report for {day.isoformat()}")
-    REPORT_REQUEST_FILE.unlink(missing_ok=True)
     return timestamp
 
 
