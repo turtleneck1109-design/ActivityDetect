@@ -3,16 +3,22 @@ import csv
 import ctypes
 import datetime as dt
 import html
+import json
 import os
 import signal
+import subprocess
+import sys
+import threading
 import time
 import traceback
 from ctypes import wintypes
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 
 APP_NAME = "LocalWorkTracker"
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 EVENTS_FILE = DATA_DIR / "events.csv"
 DASHBOARD_FILE = DATA_DIR / "activity_dashboard.html"
@@ -20,6 +26,8 @@ PID_FILE = DATA_DIR / "tracker.pid"
 STOP_FILE = DATA_DIR / "tracker.stop"
 REPORT_REQUEST_FILE = DATA_DIR / "report.request"
 REPORT_RESPONSE_FILE = DATA_DIR / "report.response"
+REFRESH_SERVER_HOST = "127.0.0.1"
+REFRESH_SERVER_PORT = 8765
 EVENT_COLUMNS = ["start", "end", "seconds", "app", "title", "state", "key_presses", "mouse_clicks"]
 INSTANCE_MUTEX_NAME = r"Local\LocalWorkTracker_Running"
 UNKNOWN_SLEEP_APP = "unknown"
@@ -31,6 +39,7 @@ UNOBSERVED_APP = "idle"
 UNOBSERVED_TITLE = "系统睡眠或采样暂停"
 PENDING_EVENTS = []
 EVENTS_WRITE_BLOCKED = False
+REPORT_REQUEST_LOCK = threading.Lock()
 
 
 user32 = ctypes.windll.user32
@@ -728,8 +737,14 @@ def save_activity_dashboard():
 * {{ box-sizing:border-box; }}
 body {{ margin:0; font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif; color:var(--ink); background:var(--bg); }}
 .hero {{ background:#0f172a; color:#fff; padding:36px max(28px, calc((100vw - 1320px) / 2)); }}
+.hero-bar {{ display:flex; align-items:flex-start; justify-content:space-between; gap:24px; margin-bottom:28px; }}
 .hero h1 {{ font-size:32px; margin:0 0 8px; }}
-.hero p {{ color:#cbd5e1; margin:0 0 28px; }}
+.hero p {{ color:#cbd5e1; margin:0; }}
+.refresh-actions {{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; min-width:190px; }}
+.refresh-button {{ border:0; border-radius:10px; background:#38bdf8; color:#082f49; cursor:pointer; font:600 14px "Segoe UI","Microsoft YaHei",Arial,sans-serif; padding:11px 16px; }}
+.refresh-button:hover {{ background:#7dd3fc; }}
+.refresh-button:disabled {{ cursor:wait; opacity:.72; }}
+.refresh-status {{ color:#cbd5e1; font-size:12px; min-height:18px; text-align:right; }}
 .overview {{ display:grid; grid-template-columns:repeat(4,minmax(130px,1fr)); gap:14px; max-width:820px; }}
 .metric {{ background:rgba(255,255,255,.09); border-radius:14px; padding:14px 16px; }}
 .metric span {{ display:block; font-size:12px; color:#cbd5e1; margin-bottom:5px; }}
@@ -753,13 +768,21 @@ main {{ display:grid; gap:22px; }}
 .daily-metrics strong {{ color:var(--ink); margin-left:5px; }}
 .day-card img {{ display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:12px; background:#f8fafc; }}
 .empty {{ background:var(--panel); border-radius:16px; padding:48px; color:var(--muted); text-align:center; }}
-@media (max-width:820px) {{ .overview {{ grid-template-columns:repeat(2,1fr); }} .layout {{ display:block; }} nav {{ position:static; margin-bottom:20px; }} .day-card header {{ display:block; }} .links {{ margin-top:14px; }} }}
+@media (max-width:820px) {{ .hero-bar {{ display:block; }} .refresh-actions {{ align-items:flex-start; margin-top:18px; }} .refresh-status {{ text-align:left; }} .overview {{ grid-template-columns:repeat(2,1fr); }} .layout {{ display:block; }} nav {{ position:static; margin-bottom:20px; }} .day-card header {{ display:block; }} .links {{ margin-top:14px; }} }}
 </style>
 </head>
 <body>
 <header class="hero">
+<div class="hero-bar">
+<div>
 <h1>电脑活动总览</h1>
 <p>汇集全部每日图表 · 最近更新于 {html.escape(updated_at)}</p>
+</div>
+<div class="refresh-actions">
+<button class="refresh-button" type="button" id="refreshTodayButton">&#21047;&#26032;&#20170;&#26085;&#27963;&#21160;</button>
+<span class="refresh-status" id="refreshStatus" role="status" aria-live="polite"></span>
+</div>
+</div>
 <div class="overview">
 <div class="metric"><span>已记录日期</span><strong>{len(days)} 天</strong></div>
 <div class="metric"><span>累计有效使用</span><strong>{html.escape(fmt_duration(total_active))}</strong></div>
@@ -771,6 +794,31 @@ main {{ display:grid; gap:22px; }}
 <nav><h2>按日期查看</h2>{"".join(nav_items)}</nav>
 <main>{"".join(cards)}</main>
 </div>
+<script>
+const refreshButton = document.getElementById("refreshTodayButton");
+const refreshStatus = document.getElementById("refreshStatus");
+const refreshEndpoint = "http://{REFRESH_SERVER_HOST}:{REFRESH_SERVER_PORT}/refresh?day=today";
+
+async function refreshTodayActivity() {{
+  refreshButton.disabled = true;
+  refreshStatus.textContent = "\\u6b63\\u5728\\u66f4\\u65b0...";
+  try {{
+    const response = await fetch(refreshEndpoint, {{ cache: "no-store" }});
+    const payload = await response.json().catch(() => ({{}}));
+    if (!response.ok || !payload.ok) {{
+      throw new Error(payload.message || "\\u5237\\u65b0\\u5931\\u8d25");
+    }}
+    const refreshedUrl = new URL(window.location.href);
+    refreshedUrl.searchParams.set("refreshed", Date.now().toString());
+    window.location.replace(refreshedUrl.toString());
+  }} catch (error) {{
+    refreshStatus.textContent = error.message || "\\u540e\\u53f0\\u8bb0\\u5f55\\u672a\\u8fd0\\u884c\\uff0c\\u8bf7\\u5148\\u542f\\u52a8\\u8bb0\\u5f55\\u3002";
+    refreshButton.disabled = false;
+  }}
+}}
+
+refreshButton.addEventListener("click", refreshTodayActivity);
+</script>
 </body>
 </html>
 """
@@ -868,22 +916,102 @@ def handle_report_request(current_start, timestamp, app, title, state, activity_
 
 
 def request_report_from_tracker(day, timeout_seconds=8):
-    ensure_data_dir()
-    clear_report_ipc_files()
-    REPORT_REQUEST_FILE.write_text(day.isoformat(), encoding="utf-8")
-    deadline = time.monotonic() + timeout_seconds
+    with REPORT_REQUEST_LOCK:
+        ensure_data_dir()
+        clear_report_ipc_files()
+        REPORT_REQUEST_FILE.write_text(day.isoformat(), encoding="utf-8")
+        deadline = time.monotonic() + timeout_seconds
 
-    while time.monotonic() < deadline:
-        if REPORT_RESPONSE_FILE.exists():
-            response = REPORT_RESPONSE_FILE.read_text(encoding="utf-8").splitlines()
-            clear_report_ipc_files()
-            if response and response[0] == "OK" and len(response) >= 3:
-                return Path(response[1]), Path(response[2])
-            raise RuntimeError("\n".join(response[1:]) if len(response) > 1 else "report request failed")
-        time.sleep(0.2)
+        while time.monotonic() < deadline:
+            if REPORT_RESPONSE_FILE.exists():
+                response = REPORT_RESPONSE_FILE.read_text(encoding="utf-8").splitlines()
+                clear_report_ipc_files()
+                if response and response[0] == "OK" and len(response) >= 3:
+                    return Path(response[1]), Path(response[2])
+                raise RuntimeError("\n".join(response[1:]) if len(response) > 1 else "report request failed")
+            time.sleep(0.2)
 
-    clear_report_ipc_files()
-    return None
+        clear_report_ipc_files()
+        return None
+
+
+def start_dashboard_refresh_server():
+    class RefreshHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            write_runtime_log("refresh server: " + (format % args))
+
+        def send_json(self, status, payload):
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            self.send_json(200, {"ok": True})
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/health":
+                self.send_json(200, {"ok": True})
+                return
+            if parsed.path != "/refresh":
+                self.send_json(404, {"ok": False, "message": "unknown endpoint"})
+                return
+
+            query = parse_qs(parsed.query)
+            day_text = query.get("day", ["today"])[0]
+            try:
+                day = parse_day(day_text)
+                paths = request_report_from_tracker(day, timeout_seconds=10)
+                if paths is None:
+                    self.send_json(503, {"ok": False, "message": "后台记录暂时没有响应，请稍后再试。"})
+                    return
+                report_path, chart_path = paths
+                self.send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "day": day.isoformat(),
+                        "report": str(report_path),
+                        "chart": str(chart_path),
+                        "dashboard": str(DASHBOARD_FILE),
+                        "updated_at": now_local().isoformat(sep=" "),
+                    },
+                )
+            except Exception as exc:
+                write_runtime_log(f"dashboard refresh failed: {exc!r}")
+                self.send_json(500, {"ok": False, "message": str(exc)})
+
+    try:
+        server = ThreadingHTTPServer((REFRESH_SERVER_HOST, REFRESH_SERVER_PORT), RefreshHandler)
+    except OSError as exc:
+        write_runtime_log(f"refresh server failed to start: {exc!r}")
+        return None
+
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="dashboard-refresh-server",
+        daemon=True,
+    )
+    thread.start()
+    write_runtime_log(f"refresh server listening on http://{REFRESH_SERVER_HOST}:{REFRESH_SERVER_PORT}")
+    return server
+
+
+def stop_dashboard_refresh_server(server):
+    if server is None:
+        return
+    try:
+        server.shutdown()
+        server.server_close()
+        write_runtime_log("refresh server stopped")
+    except Exception as exc:
+        write_runtime_log(f"refresh server stop failed: {exc!r}")
 
 
 def write_runtime_log(message):
@@ -926,6 +1054,7 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
     clear_report_ipc_files()
     write_pid()
     write_runtime_log("tracker started")
+    refresh_server = start_dashboard_refresh_server()
     try:
         backfill_missing_reports()
     except Exception as exc:
@@ -1007,6 +1136,7 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
         write_runtime_log("tracker error:\n" + traceback.format_exc().rstrip())
         raise
     finally:
+        stop_dashboard_refresh_server(refresh_server)
         timestamp = now_local()
         gap_seconds = int((timestamp - last_poll_at).total_seconds())
         activity_counter.poll()
@@ -1077,6 +1207,111 @@ def tracker_status():
     return 0
 
 
+def tracker_status_text():
+    if not tracker_instance_exists():
+        clear_stale_state()
+        return "后台记录当前未运行。"
+    if not PID_FILE.exists():
+        return "后台记录正在启动。"
+    pid_text = PID_FILE.read_text(encoding="utf-8").strip()
+    if pid_text.isdigit():
+        return f"后台记录正在运行。\n\n进程号: {pid_text}"
+    return "后台记录正在运行，但状态文件内容异常。"
+
+
+def packaged_command(*arguments):
+    if getattr(sys, "frozen", False):
+        return [str(Path(sys.executable).resolve()), *arguments]
+    return [sys.executable, str(Path(__file__).resolve()), *arguments]
+
+
+def show_control_panel():
+    import tkinter as tk
+    from tkinter import messagebox
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        user32.SetProcessDPIAware()
+
+    root = tk.Tk()
+    root.title("电脑活动小日报")
+    root.geometry("430x332")
+    root.resizable(False, False)
+
+    title = tk.Label(root, text="电脑活动小日报", font=("Microsoft YaHei UI", 18, "bold"))
+    title.pack(pady=(22, 4))
+    description = tk.Label(root, text="记录窗口使用情况，生成每日活动报告", font=("Microsoft YaHei UI", 10))
+    description.pack(pady=(0, 16))
+    status_var = tk.StringVar()
+    status_label = tk.Label(root, textvariable=status_var, font=("Microsoft YaHei UI", 10), fg="#475569")
+    status_label.pack(pady=(0, 14))
+
+    def refresh_status():
+        status_var.set(tracker_status_text().split("\n", 1)[0])
+
+    def start_tracking():
+        if tracker_instance_exists():
+            messagebox.showinfo("电脑活动小日报", "后台记录已经在运行。", parent=root)
+            refresh_status()
+            return
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(
+            packaged_command("run"),
+            cwd=str(BASE_DIR),
+            creationflags=creationflags,
+        )
+        root.after(600, refresh_status)
+        messagebox.showinfo("电脑活动小日报", "已请求启动后台记录。", parent=root)
+
+    def generate_today_report():
+        day = dt.date.today()
+        try:
+            paths = request_report_from_tracker(day) if tracker_instance_exists() else None
+            report_path, chart_path = paths if paths else save_daily_outputs(day)
+            open_daily_outputs(report_path, chart_path)
+        except Exception as exc:
+            messagebox.showerror("电脑活动小日报", f"日报生成失败：\n{exc}", parent=root)
+
+    def stop_tracking():
+        if not tracker_instance_exists():
+            messagebox.showinfo("电脑活动小日报", "后台记录当前未运行。", parent=root)
+            refresh_status()
+            return
+        result = stop_tracker()
+        refresh_status()
+        if result == 0:
+            messagebox.showinfo("电脑活动小日报", "后台记录已停止，今天的日报已刷新。", parent=root)
+        else:
+            messagebox.showwarning("电脑活动小日报", "后台记录未能及时停止，请稍后再试。", parent=root)
+
+    button_style = {"font": ("Microsoft YaHei UI", 10), "width": 26, "pady": 6}
+    tk.Button(root, text="开始后台记录", command=start_tracking, **button_style).pack(pady=4)
+    tk.Button(root, text="生成今天的日报", command=generate_today_report, **button_style).pack(pady=4)
+    tk.Button(root, text="停止后台记录", command=stop_tracking, **button_style).pack(pady=4)
+    tk.Button(root, text="刷新状态", command=refresh_status, **button_style).pack(pady=4)
+
+    refresh_status()
+    root.mainloop()
+    return 0
+
+
+def show_status_notification():
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showinfo("电脑活动小日报", tracker_status_text(), parent=root)
+        root.destroy()
+        return 0
+    except Exception as exc:
+        print(f"notification failed: {exc}")
+        return 1
+
+
 def show_notification(kind):
     try:
         try:
@@ -1101,14 +1336,14 @@ def show_notification(kind):
                 "\u2022 \u952e\u76d8\u8f93\u5165\u6b21\u6570\n"
                 "\u2022 \u9f20\u6807\u70b9\u51fb\u6b21\u6570\n"
                 "\u2022 \u7a7a\u95f2\u65f6\u95f4\n\n"
-                "\u4e0b\u73ed\u540e\u53cc\u51fb generate_today_report.bat \u751f\u6210\u4eca\u5929\u7684\u65e5\u62a5\u3002",
+                "\u4e0b\u73ed\u540e\u53ef\u5728\u4e3b\u9762\u677f\u4e2d\u751f\u6210\u4eca\u5929\u7684\u65e5\u62a5\u3002",
                 parent=root,
             )
         else:
             messagebox.showwarning(
                 title,
                 "\u5de5\u4f5c\u8bb0\u5f55\u53ef\u80fd\u6ca1\u6709\u542f\u52a8\u6210\u529f\u3002\n\n"
-                "\u8bf7\u67e5\u770b data\\startup.log\uff0c\u6216\u5148\u53cc\u51fb stop_tracker.bat \u540e\u518d\u542f\u52a8\u3002",
+                "\u8bf7\u7a0d\u540e\u518d\u5728\u4e3b\u9762\u677f\u4e2d\u5c1d\u8bd5\u542f\u52a8\u3002",
                 parent=root,
             )
         root.destroy()
@@ -1142,13 +1377,16 @@ def main():
     report_cmd.add_argument("--open", action="store_true", dest="open_outputs", help="生成后打开日报和活动总览")
 
     subparsers.add_parser("stop", help="停止后台记录")
-    subparsers.add_parser("status", help="查看后台记录状态")
+    status_cmd = subparsers.add_parser("status", help="查看后台记录状态")
+    status_cmd.add_argument("--popup", action="store_true", help="以弹窗显示运行状态")
     subparsers.add_parser("backfill", help="补生成今天以前缺失的日报和图表")
 
     notify_cmd = subparsers.add_parser("notify", help="show desktop notification")
     notify_cmd.add_argument("kind", choices=["started", "failed"])
 
     args = parser.parse_args()
+    if args.command is None and getattr(sys, "frozen", False):
+        return show_control_panel()
     if args.command in (None, "run"):
         run_tracker(
             args.sample_seconds if args.command else 5,
@@ -1180,6 +1418,8 @@ def main():
     if args.command == "stop":
         return stop_tracker()
     if args.command == "status":
+        if args.popup:
+            return show_status_notification()
         return tracker_status()
     if args.command == "backfill":
         created = backfill_missing_reports()
