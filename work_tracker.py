@@ -11,6 +11,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +28,10 @@ PID_FILE = DATA_DIR / "tracker.pid"
 STOP_FILE = DATA_DIR / "tracker.stop"
 REPORT_REQUEST_FILE = DATA_DIR / "report.request"
 REPORT_RESPONSE_FILE = DATA_DIR / "report.response"
+AI_SUMMARY_KEY_FILE = DATA_DIR / "sjtu_api_key.txt"
+AI_SUMMARY_API_URL = "https://models.sjtu.edu.cn/api/v1/chat/completions"
+AI_SUMMARY_MODEL = "deepseek-chat"
+AI_SUMMARY_MAX_REPORT_CHARS = 24000
 REFRESH_SERVER_HOST = "127.0.0.1"
 REFRESH_SERVER_PORT = 8765
 EVENT_COLUMNS = ["start", "end", "seconds", "app", "title", "state", "key_presses", "mouse_clicks"]
@@ -533,6 +539,112 @@ def save_report(day):
     return path
 
 
+def load_ai_summary_api_key():
+    api_key = os.environ.get("SJTU_API_KEY", "").strip()
+    if api_key:
+        return api_key
+    try:
+        return AI_SUMMARY_KEY_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def build_ai_summary_prompt(day, report_text):
+    trimmed_report = report_text[:AI_SUMMARY_MAX_REPORT_CHARS]
+    return (
+        f"请根据下面这份 {day.isoformat()} 的电脑活动日报，总结昨天的工作内容。\n"
+        "要求：\n"
+        "1. 用中文输出。\n"
+        "2. 不要编造日报中没有的信息。\n"
+        "3. 重点提炼实际工作主题、主要投入方向、可能的上下文切换、空闲/未统计情况。\n"
+        "4. 给出简洁的明日建议。\n"
+        "5. 使用以下结构：昨日工作总结、时间投入、观察、明日建议。\n\n"
+        "日报内容：\n"
+        f"{trimmed_report}"
+    )
+
+
+def request_ai_summary(day, report_text, api_key=None):
+    api_key = (api_key or load_ai_summary_api_key()).strip()
+    if not api_key:
+        raise RuntimeError(
+            f"missing API key; set SJTU_API_KEY or create {AI_SUMMARY_KEY_FILE}"
+        )
+
+    payload = {
+        "model": AI_SUMMARY_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个谨慎的工作复盘助手。你只能基于用户提供的本地活动日报进行总结，"
+                    "如果信息不足就明确说明。"
+                ),
+            },
+            {"role": "user", "content": build_ai_summary_prompt(day, report_text)},
+        ],
+        "temperature": 0.2,
+        "stream": False,
+        "max_tokens": 1200,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        AI_SUMMARY_API_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_text = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"AI summary request failed: HTTP {exc.code} {error_body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"AI summary request failed: {exc.reason}") from exc
+
+    data = json.loads(response_text)
+    try:
+        return data["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError(f"AI summary response format is unexpected: {response_text}") from exc
+
+
+def save_ai_summary(day, force=False, api_key=None):
+    ensure_data_dir()
+    summary_path = DATA_DIR / f"ai_summary_{day.isoformat()}.txt"
+    if summary_path.exists() and not force:
+        return summary_path
+
+    report_path = DATA_DIR / f"work_log_{day.isoformat()}.txt"
+    if not report_path.exists():
+        report_path = save_report(day)
+    report_text = report_path.read_text(encoding="utf-8-sig")
+    summary = request_ai_summary(day, report_text, api_key=api_key)
+    document = (
+        f"AI 工作总结 - {day.isoformat()}\n"
+        "=" * 32
+        + "\n\n"
+        + summary
+        + "\n"
+    )
+    summary_path.write_text(document, encoding="utf-8-sig")
+    return summary_path
+
+
+def save_ai_summary_safely(day, reason, force=False):
+    try:
+        path = save_ai_summary(day, force=force)
+        write_runtime_log(f"{reason} AI summary generated for {day.isoformat()}: {path}")
+        return path
+    except Exception as exc:
+        write_runtime_log(f"{reason} AI summary failed for {day.isoformat()}: {exc!r}")
+        return None
+
+
 def save_activity_chart(day):
     rows = read_events_for_day(day)
     active_rows = [r for r in rows if r["state"] == "active"]
@@ -873,6 +985,20 @@ def backfill_missing_reports(today=None):
     return created
 
 
+def backfill_missing_ai_summaries(today=None):
+    today = today or dt.date.today()
+    created = []
+    for day in event_dates_before(today):
+        summary_path = DATA_DIR / f"ai_summary_{day.isoformat()}.txt"
+        if summary_path.exists():
+            continue
+        save_ai_summary(day)
+        created.append(day)
+    if created:
+        write_runtime_log("backfilled AI summaries: " + ", ".join(day.isoformat() for day in created))
+    return created
+
+
 def clear_report_ipc_files():
     for path in (REPORT_REQUEST_FILE, REPORT_RESPONSE_FILE):
         try:
@@ -1048,7 +1174,13 @@ def next_report_datetime(after, report_time):
     return candidate
 
 
-def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time):
+def _run_tracker(
+    sample_seconds,
+    idle_after_seconds,
+    activity_poll_seconds,
+    daily_report_time,
+    daily_summary_time,
+):
     ensure_data_dir()
     clear_stop_file()
     clear_report_ipc_files()
@@ -1059,6 +1191,10 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
         backfill_missing_reports()
     except Exception as exc:
         write_runtime_log(f"backfill failed during startup: {exc!r}")
+    try:
+        backfill_missing_ai_summaries()
+    except Exception as exc:
+        write_runtime_log(f"AI summary backfill failed during startup: {exc!r}")
 
     stop = False
 
@@ -1076,6 +1212,7 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
     activity_counter = ActivityCounter()
     next_sample_at = time.monotonic() + sample_seconds
     next_daily_report_at = next_report_datetime(current_start, daily_report_time)
+    next_daily_summary_at = next_report_datetime(current_start, daily_summary_time)
     last_poll_at = current_start
     unobserved_after_seconds = max(15, sample_seconds * 3, activity_poll_seconds * 20)
 
@@ -1090,6 +1227,17 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
         for report_day in sorted(report_days):
             save_daily_outputs_safely(report_day, "automatic")
 
+    def save_summaries_through(timestamp):
+        nonlocal next_daily_summary_at
+        summary_days = set()
+        while next_daily_summary_at is not None and timestamp >= next_daily_summary_at:
+            summary_days.add(next_daily_summary_at.date() - dt.timedelta(days=1))
+            next_daily_summary_at += dt.timedelta(days=1)
+        for summary_day in sorted(summary_days):
+            if summary_day < timestamp.date():
+                save_daily_outputs_safely(summary_day, "pre-summary")
+                save_ai_summary_safely(summary_day, "automatic")
+
     try:
         while not stop and not STOP_FILE.exists():
             time.sleep(activity_poll_seconds)
@@ -1101,6 +1249,7 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
                 append_event(last_poll_at, timestamp, UNOBSERVED_APP, UNOBSERVED_TITLE, "idle")
                 write_runtime_log(f"marked {gap_seconds} seconds without samples as idle")
                 save_reports_through(current_start, timestamp)
+                save_summaries_through(timestamp)
 
                 state = "idle" if get_idle_seconds() >= idle_after_seconds else "active"
                 app, title = ("idle", "用户空闲") if state == "idle" else get_foreground_activity()
@@ -1125,10 +1274,12 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
 
             crossed_midnight = current_start.date() != timestamp.date()
             report_due = next_daily_report_at is not None and timestamp >= next_daily_report_at
-            if new_key != current_key or crossed_midnight or report_due:
+            summary_due = next_daily_summary_at is not None and timestamp >= next_daily_summary_at
+            if new_key != current_key or crossed_midnight or report_due or summary_due:
                 key_presses, mouse_clicks = activity_counter.consume()
                 append_event(current_start, timestamp, app, title, state, key_presses, mouse_clicks)
                 save_reports_through(current_start, timestamp)
+                save_summaries_through(timestamp)
                 current_start = timestamp
                 app, title, state = new_app, new_title, new_state
                 current_key = new_key
@@ -1152,10 +1303,22 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
         clear_pid()
 
 
-def run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time):
+def run_tracker(
+    sample_seconds,
+    idle_after_seconds,
+    activity_poll_seconds,
+    daily_report_time,
+    daily_summary_time,
+):
     mutex_handle = acquire_instance_mutex()
     try:
-        _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, daily_report_time)
+        _run_tracker(
+            sample_seconds,
+            idle_after_seconds,
+            activity_poll_seconds,
+            daily_report_time,
+            daily_summary_time,
+        )
     finally:
         kernel32.CloseHandle(mutex_handle)
 
@@ -1371,15 +1534,21 @@ def main():
     run_cmd.add_argument("--activity-poll-seconds", type=float, default=0.05, help="键盘鼠标计数轮询间隔，默认 0.05 秒")
 
     run_cmd.add_argument("--daily-report-time", default="23:59", help="daily report time, HH:MM, or off")
+    run_cmd.add_argument("--daily-summary-time", default="08:30", help="daily AI summary time for yesterday, HH:MM, or off")
 
     report_cmd = subparsers.add_parser("report", help="生成日报")
     report_cmd.add_argument("--day", default="today", help="today、yesterday 或 YYYY-MM-DD")
     report_cmd.add_argument("--open", action="store_true", dest="open_outputs", help="生成后打开日报和活动总览")
 
+    summary_cmd = subparsers.add_parser("summary", help="generate AI work summary")
+    summary_cmd.add_argument("--day", default="yesterday", help="today, yesterday, or YYYY-MM-DD")
+    summary_cmd.add_argument("--force", action="store_true", help="regenerate even if the summary already exists")
+
     subparsers.add_parser("stop", help="停止后台记录")
     status_cmd = subparsers.add_parser("status", help="查看后台记录状态")
     status_cmd.add_argument("--popup", action="store_true", help="以弹窗显示运行状态")
     subparsers.add_parser("backfill", help="补生成今天以前缺失的日报和图表")
+    subparsers.add_parser("backfill-summaries", help="backfill missing AI summaries before today")
 
     notify_cmd = subparsers.add_parser("notify", help="show desktop notification")
     notify_cmd.add_argument("kind", choices=["started", "failed"])
@@ -1393,6 +1562,7 @@ def main():
             args.idle_after_seconds if args.command else 300,
             args.activity_poll_seconds if args.command else 0.05,
             parse_clock_time(args.daily_report_time) if args.command else parse_clock_time("23:59"),
+            parse_clock_time(args.daily_summary_time) if args.command else parse_clock_time("08:30"),
         )
         return 0
     if args.command == "report":
@@ -1415,6 +1585,13 @@ def main():
         if args.open_outputs:
             return open_daily_outputs(report_path, chart_path)
         return 0
+    if args.command == "summary":
+        ensure_data_dir()
+        day = parse_day(args.day)
+        save_daily_outputs(day)
+        summary_path = save_ai_summary(day, force=args.force)
+        print(summary_path)
+        return 0
     if args.command == "stop":
         return stop_tracker()
     if args.command == "status":
@@ -1427,6 +1604,13 @@ def main():
             print("补生成完成: " + ", ".join(day.isoformat() for day in created))
         else:
             print("没有缺失的历史日报。")
+        return 0
+    if args.command == "backfill-summaries":
+        created = backfill_missing_ai_summaries()
+        if created:
+            print("AI summaries backfilled: " + ", ".join(day.isoformat() for day in created))
+        else:
+            print("No missing AI summaries.")
         return 0
     if args.command == "notify":
         return show_notification(args.kind)
