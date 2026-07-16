@@ -181,7 +181,11 @@ def normalize_activity(app, title, state, seconds=0, key_presses=0, mouse_clicks
 
     app_name = (app or "").strip().lower()
     no_input = int(key_presses or 0) == 0 and int(mouse_clicks or 0) == 0
-    if is_unknown_sleep_event(app, title) or app_name in LOCK_SCREEN_APPS:
+    # An inaccessible foreground window is not proof that the user is idle.
+    # This happens when the tracker is launched from a non-interactive desktop,
+    # even though GetLastInputInfo still correctly reports recent user input.
+    # Sleep/suspend gaps are handled explicitly by the sampling loop below.
+    if app_name in LOCK_SCREEN_APPS:
         return app, title, "idle"
     if app_name in SLEEP_BRIDGE_APPS and seconds >= LEGACY_IDLE_SECONDS and no_input:
         return app, title, "idle"
@@ -526,11 +530,55 @@ def build_report(day):
     return "\n".join(lines) + "\n"
 
 
+def write_output_text(path, content, encoding):
+    """Atomically write output, using a versioned file if the target is locked."""
+    temp_path = DATA_DIR / f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    temp_path.write_text(content, encoding=encoding)
+    try:
+        os.replace(temp_path, path)
+        return path
+    except PermissionError:
+        # Windows does not allow replacing a report while another program has
+        # opened it without delete sharing (Notepad and preview tools can do
+        # this). Keep the newly generated report under a timestamped name
+        # instead of aborting the whole report/dashboard operation.
+        timestamp = now_local().strftime("%Y%m%d_%H%M%S")
+        for suffix in range(1000):
+            extra = "" if suffix == 0 else f"_{suffix}"
+            fallback = path.with_name(f"{path.stem}_{timestamp}{extra}{path.suffix}")
+            try:
+                temp_path.rename(fallback)
+                return fallback
+            except FileExistsError:
+                continue
+        raise RuntimeError(f"could not allocate a fallback output name for {path.name}")
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def latest_output_path(path):
+    """Return the newest primary or lock-fallback version of an output file."""
+    candidates = [
+        candidate
+        for candidate in path.parent.glob(f"{path.stem}*{path.suffix}")
+        if candidate.name == path.name or candidate.stem.startswith(f"{path.stem}_")
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate.stat().st_mtime_ns)
+
+
 def save_report(day):
     report = build_report(day)
     path = DATA_DIR / f"work_log_{day.isoformat()}.txt"
-    path.write_text(report, encoding="utf-8-sig")
-    return path
+    return write_output_text(path, report, "utf-8-sig")
+
+
+def latest_report_path(day):
+    return latest_output_path(DATA_DIR / f"work_log_{day.isoformat()}.txt")
 
 
 def save_activity_chart(day):
@@ -649,8 +697,7 @@ def save_activity_chart(day):
     ])
 
     path = DATA_DIR / f"work_chart_{day.isoformat()}.svg"
-    path.write_text("\n".join(parts), encoding="utf-8")
-    return path
+    return write_output_text(path, "\n".join(parts), "utf-8")
 
 
 def dashboard_chart_days():
@@ -700,11 +747,12 @@ def save_activity_dashboard():
     cards = []
     for day, active_seconds, idle_seconds, key_total, mouse_total, top_app in summaries:
         date_text = day.isoformat()
-        chart_name = f"work_chart_{date_text}.svg"
-        report_name = f"work_log_{date_text}.txt"
+        chart_path = latest_output_path(DATA_DIR / f"work_chart_{date_text}.svg")
+        chart_name = chart_path.name if chart_path is not None else f"work_chart_{date_text}.svg"
+        report_path = latest_report_path(day)
         report_link = ""
-        if (DATA_DIR / report_name).exists():
-            report_link = f'<a class="secondary" href="{html.escape(report_name)}">文字日报</a>'
+        if report_path is not None:
+            report_link = f'<a class="secondary" href="{html.escape(report_path.name)}">文字日报</a>'
         nav_items.append(
             f'<a href="#day-{date_text}"><strong>{date_text}</strong>'
             f'<span>{html.escape(fmt_duration(active_seconds))}</span></a>'
@@ -822,8 +870,7 @@ refreshButton.addEventListener("click", refreshTodayActivity);
 </body>
 </html>
 """
-    DASHBOARD_FILE.write_text(document, encoding="utf-8")
-    return DASHBOARD_FILE
+    return write_output_text(DASHBOARD_FILE, document, "utf-8")
 
 
 def save_daily_outputs(day):
@@ -835,7 +882,7 @@ def save_daily_outputs(day):
 
 def open_daily_outputs(report_path, chart_path):
     failures = []
-    browser_output = DASHBOARD_FILE if DASHBOARD_FILE.exists() else chart_path
+    browser_output = latest_output_path(DASHBOARD_FILE) or chart_path
     for path in (report_path, browser_output):
         try:
             os.startfile(str(path))
@@ -915,7 +962,7 @@ def handle_report_request(current_start, timestamp, app, title, state, activity_
     return timestamp
 
 
-def request_report_from_tracker(day, timeout_seconds=8):
+def request_report_from_tracker(day, timeout_seconds=60):
     with REPORT_REQUEST_LOCK:
         ensure_data_dir()
         clear_report_ipc_files()
@@ -967,7 +1014,7 @@ def start_dashboard_refresh_server():
             day_text = query.get("day", ["today"])[0]
             try:
                 day = parse_day(day_text)
-                paths = request_report_from_tracker(day, timeout_seconds=10)
+                paths = request_report_from_tracker(day, timeout_seconds=60)
                 if paths is None:
                     self.send_json(503, {"ok": False, "message": "后台记录暂时没有响应，请稍后再试。"})
                     return
@@ -1112,6 +1159,10 @@ def _run_tracker(sample_seconds, idle_after_seconds, activity_poll_seconds, dail
             activity_counter.poll()
             if REPORT_REQUEST_FILE.exists():
                 current_start = handle_report_request(current_start, now_local(), app, title, state, activity_counter)
+                # Report generation can take longer than the normal sampling
+                # gap threshold. It is work performed by this process, not a
+                # system sleep or sampling failure.
+                last_poll_at = now_local()
                 next_sample_at = time.monotonic() + sample_seconds
 
             if time.monotonic() < next_sample_at:
@@ -1178,7 +1229,9 @@ def stop_tracker():
     pid = int(pid_text)
     STOP_FILE.write_text(now_local().isoformat(sep=" "), encoding="utf-8")
 
-    for _ in range(20):
+    # Shutdown writes the final report/dashboard and can take 10+ seconds on a
+    # large history. Wait long enough before claiming the process is stuck.
+    for _ in range(120):
         if not tracker_instance_exists():
             print(f"已停止记录进程 {pid}，并生成了今天的日报。")
             return 0
